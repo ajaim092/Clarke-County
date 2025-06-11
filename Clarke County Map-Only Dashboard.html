@@ -1,0 +1,140 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clarke County Demographics Map</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        #map {
+            height: 500px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .filter-container {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        @media (max-width: 640px) {
+            #map {
+                height: 400px;
+            }
+            .filter-container {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-900 mb-6 text-center">Clarke County Tract-Level Demographics Map</h1>
+        <p class="text-gray-700 mb-4 text-center">Verified coordinates from the 2020 Census Tract Gazetteer File for Clarke County, Virginia (FIPS 51043).</p>
+
+        <!-- Filter Controls -->
+        <div class="filter-container mb-6 bg-white p-4 rounded-lg shadow">
+            <label for="povertyFilter" class="text-gray-700 font-medium">Poverty Rate Threshold (%):</label>
+            <input type="range" id="povertyFilter" min="0" max="50" value="30" step="1" class="w-48">
+            <span id="povertyValue" class="text-gray-900 font-medium">30%</span>
+            <button onclick="applyFilter()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Apply</button>
+        </div>
+
+        <!-- Map -->
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // Clarke County tract data with verified 2020 Gazetteer coordinates
+        const data = [
+            { tract: '101.01', population: 4707, income: 106176, unemploymentRate: 1.2, povertyRate: 11.6, lat: 39.152805, lon: -77.992165 },
+            { tract: '101.02', population: 4299, income: 122313, unemploymentRate: 3.8, povertyRate: 5.7, lat: 39.112054, lon: -78.050505 },
+            { tract: '102', population: 3200, income: 122632, unemploymentRate: 1.3, povertyRate: 5.3, lat: 39.094133, lon: -77.969424 },
+            { tract: '103', population: 2854, income: 89659, unemploymentRate: 2.0, povertyRate: 2.4, lat: 39.071981, lon: -78.026051 }
+        ];
+
+        // Initialize Map
+        const map = L.map('map').setView([39.1, -78.0], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        const markers = L.layerGroup();
+        function updateMap(filteredData) {
+            markers.clearLayers();
+            filteredData.forEach(tract => {
+                const color = tract.povertyRate > 30 ? '#b91c1c' : '#2563eb';
+                L.circleMarker([tract.lat, tract.lon], {
+                    radius: 10,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(markers).bindPopup(
+                    `Tract: ${tract.tract}<br>Population: ${tract.population}<br>Median Household Income: $${tract.income}<br>Unemployment Rate: ${tract.unemploymentRate}%<br>Poverty Rate: ${tract.povertyRate}%`
+                );
+            });
+            map.addLayer(markers);
+        }
+        updateMap(data);
+
+        // Filter Functionality
+        document.getElementById('povertyFilter').addEventListener('input', function() {
+            document.getElementById('povertyValue').textContent = `${this.value}%`;
+        });
+
+        function applyFilter() {
+            const threshold = parseFloat(document.getElementById('povertyFilter').value);
+            const filteredData = data.filter(d => d.povertyRate >= threshold);
+            updateMap(filteredData);
+        }
+    </script>
+</body>
+</html>
